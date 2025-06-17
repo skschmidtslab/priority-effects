@@ -273,6 +273,192 @@ cat("Number of iterations:", nmds_result$iterations, "\n")
 cat("Total samples in analysis:", nrow(nmds_all_data), "\n")
 cat("Selected groups samples in plot:", nrow(nmds_plot_data), "\n")
 
+
+
+# ============================================================================
+# SECTION: Plot all data groups (comprehensive view)
+# ============================================================================
+
+# ============================================================================
+# SECTION: Plot all data groups (comprehensive view)
+# ============================================================================
+
+cat("\n=== Creating comprehensive NMDS plot with all groups ===\n")
+
+# Get all unique groups from the metadata
+all_groups <- unique(nmds_all_data$Group)
+cat("All groups found in data:", paste(all_groups, collapse = ", "), "\n")
+
+# Remove any NA groups
+all_groups <- all_groups[!is.na(all_groups)]
+
+# Filter to include all groups (removing any samples without group assignment)
+nmds_all_groups_data <- nmds_all_data %>%
+  filter(!is.na(Group))
+
+# Create a comprehensive color palette for all groups based on first letter
+n_groups <- length(all_groups)
+cat("Total number of groups:", n_groups, "\n")
+
+# Function to assign colors based on first letter of group name
+assign_color_by_letter <- function(group_names) {
+  colors <- character(length(group_names))
+  
+  # Define color palettes for each letter
+  black_grays <- c("black", "#2F2F2F", "#404040", "#555555", "#696969", "#808080", "#A9A9A9", "#C0C0C0")
+  oranges_yellows <- c("#FF8C00", "#FFA500", "#FFB347", "#FFCC33", "#FFD700", "#FFFF00", "#FFFF66", "#FFFF99")
+  reds <- c("#8B0000", "#B22222", "#DC143C", "#FF0000", "#FF4500", "#FF6347", "#FF7F7F", "#FFA07A")
+  blues <- c("#000080", "#0000CD", "#0000FF", "#4169E1", "#6495ED", "#87CEEB", "#ADD8E6", "#B0E0E6")
+  
+  # Count groups by first letter to manage palette distribution
+  b_groups <- group_names[startsWith(group_names, "B")]
+  o_groups <- group_names[startsWith(group_names, "O")]
+  a_groups <- group_names[startsWith(group_names, "A")]
+  n_groups <- group_names[startsWith(group_names, "N")]
+  other_groups <- group_names[!startsWith(group_names, "B") & 
+                                !startsWith(group_names, "O") & 
+                                !startsWith(group_names, "A") & 
+                                !startsWith(group_names, "N")]
+  
+  # Assign colors
+  for (i in seq_along(group_names)) {
+    group <- group_names[i]
+    first_letter <- substr(group, 1, 1)
+    
+    if (first_letter == "B") {
+      # Black/gray shades
+      b_index <- which(b_groups == group)
+      colors[i] <- black_grays[((b_index - 1) %% length(black_grays)) + 1]
+    } else if (first_letter == "O") {
+      # Orange/yellow shades
+      o_index <- which(o_groups == group)
+      colors[i] <- oranges_yellows[((o_index - 1) %% length(oranges_yellows)) + 1]
+    } else if (first_letter == "A") {
+      # Red shades
+      a_index <- which(a_groups == group)
+      colors[i] <- reds[((a_index - 1) %% length(reds)) + 1]
+    } else if (first_letter == "N") {
+      # Blue shades
+      n_index <- which(n_groups == group)
+      colors[i] <- blues[((n_index - 1) %% length(blues)) + 1]
+    } else {
+      # Other groups - use purple/green shades
+      other_colors <- c("#800080", "#9932CC", "#DA70D6", "#228B22", "#32CD32", "#90EE90")
+      other_index <- which(other_groups == group)
+      colors[i] <- other_colors[((other_index - 1) %% length(other_colors)) + 1]
+    }
+  }
+  
+  return(colors)
+}
+
+# Apply the color assignment function
+all_colors <- assign_color_by_letter(all_groups)
+
+# Create named vector for colors
+names(all_colors) <- all_groups
+
+# Print color assignments for verification
+cat("\nColor assignments by group:\n")
+for (i in seq_along(all_groups)) {
+  cat(sprintf("  %s: %s\n", all_groups[i], all_colors[i]))
+}
+
+# Create shape palette - cycle through available shapes
+available_shapes <- c(16, 17, 15, 18, 19, 20, 8, 11, 12, 13, 14, 21, 22, 23, 24, 25)
+all_shapes <- rep(available_shapes, length.out = n_groups)
+names(all_shapes) <- all_groups
+
+# Create labels for all groups (use the group name as label)
+all_group_labels <- setNames(all_groups, all_groups)
+
+# Convert Group to a factor for consistent plotting
+nmds_all_groups_data$Group <- factor(nmds_all_groups_data$Group, levels = all_groups)
+
+# Create convex hulls for all groups
+hulls_all <- nmds_all_groups_data %>%
+  group_by(Group) %>%
+  do(find_hull(.)) %>%
+  ungroup()
+
+# Create the comprehensive NMDS plot
+nmds_all_plot <- ggplot() +
+  # Add convex hulls for each group
+  geom_polygon(data = hulls_all, 
+               aes(x = NMDS1, y = NMDS2, 
+                   fill = Group, 
+                   color = Group, 
+                   group = Group), 
+               alpha = 0.1,
+               linetype = 2) +
+  # Add colored points for all groups
+  geom_point(data = nmds_all_groups_data, 
+             aes(x = NMDS1, y = NMDS2, 
+                 color = Group, 
+                 shape = Group), 
+             size = 3, 
+             alpha = 0.8) +
+  # Use the comprehensive color and shape palettes
+  scale_color_manual(values = all_colors, labels = all_group_labels) +
+  scale_shape_manual(values = all_shapes, labels = all_group_labels) +
+  scale_fill_manual(values = all_colors, labels = all_group_labels) +
+  # Apply minimal theme
+  theme_minimal() +
+  theme(
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 8),  # Smaller text for many groups
+    legend.key.size = unit(0.8, "cm"),     # Smaller legend keys
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    panel.grid.major = element_line(color = "gray95"),
+    panel.grid.minor = element_line(color = "gray98")
+  ) +
+  # Add labels
+  labs(
+    title = "NMDS Ordination - All Sample Groups",
+    subtitle = "Based on ILR Aitchison distance of 16S rRNA amplicon data",
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Sample Group",
+    shape = "Sample Group",
+    fill = "Sample Group"
+  ) +
+  # Add stress value to the plot
+  annotate(
+    "text",
+    x = min(nmds_all_groups_data$NMDS1),
+    y = max(nmds_all_groups_data$NMDS2),
+    label = paste("Stress =", round(nmds_result$stress, 3)),
+    hjust = 0,
+    vjust = 1,
+    fontface = "bold"
+  ) +
+  # Hide the fill from the legend since it's redundant with color
+  guides(fill = "none")
+
+# Adjust legend if there are many groups
+if (n_groups > 8) {
+  nmds_all_plot <- nmds_all_plot +
+    theme(legend.position = "right") +
+    guides(
+      color = guide_legend(ncol = ceiling(n_groups/15), override.aes = list(size = 2)),
+      shape = guide_legend(ncol = ceiling(n_groups/15), override.aes = list(size = 2))
+    )
+}
+
+# Print the comprehensive NMDS plot
+print(nmds_all_plot)
+
+# Save the comprehensive NMDS plot
+ggsave(
+  "FigS2_Ordination_all_experimental_groups.pdf", 
+  nmds_all_plot, 
+  width = 12,  # Wider to accommodate legend
+  height = 8
+)
+
+
+
 # ==========================================
 # PERMANOVA ANALYSIS SECTION
 # ==========================================
@@ -403,3 +589,4 @@ cat("\n4. Pairwise PERMANOVA tests for plotted groups:\n")
   pairwise_results$p_adjusted <- p.adjust(pairwise_results$p_value, method = "fdr")
   write_csv(pairwise_results,"pairwise_permanova_fdr.csv")
   
+

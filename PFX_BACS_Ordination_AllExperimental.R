@@ -8,13 +8,14 @@ setwd("/home/pacifica/R/antarctica/S03/big_experiment/")
 # Load required libraries
 library(tidyverse)     # For data manipulation and visualization
 library(vegan)         # For NMDS and PERMANOVA
+library(zCompositions) # for cmultRepl Bayesian-multiplicative replacement of count zeros
 library(compositions)  # For ILR transformation and Aitchison distance
 library(ggplot2)       # For plotting
 library(scales)        # For color manipulation
 
 # Define input file paths
-count_table_path <- "ESV_table_PFX_Science_2023.csv"
-metadata_path <- "Metadata_mapping_table_PFX_Science_2023.csv"
+count_table_path <- "ESV_table_PFX_2025.csv"
+metadata_path <- "Metadata_PFX_2025.csv"
 
 # Read in the data
 count_data <- read.csv(count_table_path, row.names = 1)
@@ -44,29 +45,12 @@ cat("Data range - Min:", min(abundance_data), "Max:", max(abundance_data), "\n")
 
 # Step 3: Calculate ILR Aitchison distance for all samples using abundance data
 # First, we need to handle zeros for the ILR transformation
-# Using a simple multiplicative replacement strategy for zeros
-# zero_replacement <- function(x, delta = 0.01) {
-#   # Find zeros
-#   zeros <- x == 0
-#   # Count zeros
-#   n_zeros <- sum(zeros)
-#   if (n_zeros == 0) return(x)
-#   
-#   # Calculate the multiplicative replacement value
-#   delta_star <- delta * min(x[x > 0]) / n_zeros
-#   
-#   # Replace zeros
-#   x[zeros] <- delta_star
-#   
-#   # Return the modified vector
-#   return(x)
-# }
 
-# Apply zero replacement to each sample (abundance data)
-#abundance_replaced <- apply(abundance_data, 2, zero_replacement)
 abundance_replaced <- cmultRepl(abundance_data,  label=0, method="CZM")
+# Note: this gets rid of samples without notable abundance, including all the negative controls
+
+
 # REMEMBER: IF samples are columns, margin = 2, if samples are ROWS, margin = 1
-#field.bacs.nonat.ilr <- ilr(field.bacs.nonat.czm)
 
 # Transpose to get samples as rows
 abundance_t <- t(abundance_replaced)
@@ -86,10 +70,10 @@ nmds_result <- metaMDS(aitchison_dist, k = 2, trymax = 100)
 
 # Extract NMDS scores for all samples
 nmds_scores <- as.data.frame(scores(nmds_result))
-nmds_scores$Sample <- rownames(nmds_scores)
+nmds_scores$SampleID <- rownames(nmds_scores)
 
 # Join with metadata
-nmds_all_data <- left_join(nmds_scores, metadata, by = "Sample")
+nmds_all_data <- left_join(nmds_scores, metadata %>% mutate(SampleID=Sample), by = "SampleID")
 
 # Filter to only include the specified groups for plotting
 nmds_plot_data <- nmds_all_data %>%
@@ -240,9 +224,9 @@ nmds_plot <- ggplot() +
     shape = "Sample Group",
     fill = "Sample Group"
   ) +
-  # Limit x-axis to the range of plotted points with some padding
-  xlim(min(nmds_plot_data$NMDS1) - 0.1 * diff(range(nmds_plot_data$NMDS1)),
-       max(nmds_plot_data$NMDS1) + 0.1 * diff(range(nmds_plot_data$NMDS1))) +
+  # # Limit x-axis to the range of plotted points with some padding
+  # xlim(min(nmds_plot_data$NMDS1) - 0.1 * diff(range(nmds_plot_data$NMDS1)),
+  #      max(nmds_plot_data$NMDS1) + 0.1 * diff(range(nmds_plot_data$NMDS1))) +
   # Add stress value to the plot (using plot data range for positioning)
   annotate(
     "text",
@@ -263,7 +247,7 @@ ggsave(
   "nmds_ilr_aitchison_abundance_black_orange_convexhull.pdf", 
   nmds_plot, 
   width = 8, 
-  height = 6
+  height = 5
 )
 
 # Print information about the NMDS result
@@ -273,11 +257,6 @@ cat("Number of iterations:", nmds_result$iterations, "\n")
 cat("Total samples in analysis:", nrow(nmds_all_data), "\n")
 cat("Selected groups samples in plot:", nrow(nmds_plot_data), "\n")
 
-
-
-# ============================================================================
-# SECTION: Plot all data groups (comprehensive view)
-# ============================================================================
 
 # ============================================================================
 # SECTION: Plot all data groups (comprehensive view)
@@ -453,7 +432,7 @@ print(nmds_all_plot)
 ggsave(
   "FigS2_Ordination_all_experimental_groups.pdf", 
   nmds_all_plot, 
-  width = 12,  # Wider to accommodate legend
+  width = 9,  # Wider to accommodate legend
   height = 8
 )
 
@@ -487,61 +466,14 @@ permanova_all <- adonis2(aitchison_dist ~ Group,
 
 print(permanova_all)
 
-# 2. PERMANOVA test for individual factors
-cat("\n2. PERMANOVA tests for individual factors:\n")
 
-# Test Order effect
-cat("\nTesting: Order (Black/Orange initial mat type)\n")
-set.seed(1523)
-permanova_order <- adonis2(aitchison_dist ~ Order, 
-                           data = permanova_metadata, 
-                           permutations = 999,
-                           method = "euclidean")
-print(permanova_order)
-
-# Test Timing effect
-cat("\nTesting: Timing (0, 1, 2 seasons)\n")
-set.seed(1523)
-permanova_timing <- adonis2(aitchison_dist ~ Timing, 
-                            data = permanova_metadata, 
-                            permutations = 999,
-                            method = "euclidean")
-print(permanova_timing)
-
-# Test interaction effect
-cat("\nTesting: Order * Timing interaction\n")
-set.seed(1523)
-permanova_interaction <- adonis2(aitchison_dist ~ Order * Timing, 
-                                 data = permanova_metadata, 
-                                 permutations = 999,
-                                 method = "euclidean")
-print(permanova_interaction)
-
-# 3. PERMANOVA test for only the plotted groups (specified_groups)
-cat("\n3. PERMANOVA test for plotted groups only:\n")
-
-# Filter metadata to only include specified groups
-plot_metadata <- permanova_metadata %>%
-  filter(Group %in% specified_groups)
-
-# Filter distance matrix to only include specified groups
-plot_samples <- plot_metadata$Sample
-aitchison_dist_plot <- as.dist(as.matrix(aitchison_dist)[plot_samples, plot_samples])
-
-cat("Testing plotted groups:", paste(specified_groups, collapse = ", "), "\n")
-set.seed(1523)
-permanova_plot <- adonis2(aitchison_dist_plot ~ Group, 
-                          data = plot_metadata, 
-                          permutations = 999,
-                          method = "euclidean")
-print(permanova_plot)
-
-# 4. Pairwise PERMANOVA tests for plotted groups
-cat("\n4. Pairwise PERMANOVA tests for plotted groups:\n")
+# Pairwise PERMANOVA tests for all groups above abundance thresholds
+cat("\n Pairwise PERMANOVA tests for all groups above abundance thresholds:\n")
 
   # Manual pairwise tests using vegan::adonis2
   cat("\nPerforming manual pairwise PERMANOVA tests...\n")
-  group_combinations <- combn(unique(metadata$Group), 2, simplify = FALSE)
+  metadata_plot <- metadata[metadata$Sample %in% colnames(abundance_replaced),]
+  group_combinations <- combn(unique(metadata_plot$Group), 2, simplify = FALSE)
   pairwise_results <- data.frame(
     Group1 = character(),
     Group2 = character(),
@@ -555,7 +487,7 @@ cat("\n4. Pairwise PERMANOVA tests for plotted groups:\n")
     group_pair <- group_combinations[[i]]
     
     # Filter data for this pair
-    pair_metadata <- metadata %>%
+    pair_metadata <- metadata_plot %>%
       filter(Group %in% group_pair)
     
     if(nrow(pair_metadata) < 4) {

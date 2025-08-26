@@ -1,5 +1,8 @@
 # Script to plot rank abundance of the top 10 most abundant ESVs
 # from 16S SSU rRNA amplicon sequencing data
+
+# Script written with the assistance of Claude Sonnet 4 LLM by Anthropic.
+
 setwd("/home/pacifica/R/antarctica/S03/big_experiment/")
 
 # Load required libraries
